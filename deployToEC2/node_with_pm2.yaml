@@ -1,0 +1,62 @@
+name: NODE Backend
+
+on:
+  push:
+    branches: ["dev"]
+
+jobs:
+  Build_and_Deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v0.1.9
+        with:
+          username: ${{ secrets.STAGE_SSH_USERNAME }}
+          host: ${{ secrets.STAGE_SSH_HOST }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          script: |
+            set -e
+            cd /var/www/noca-backend-stage
+            eval $(ssh-agent -s); ssh-add ~/.ssh/noca-stage
+            git stash
+            git checkout latest
+            git pull origin dev
+            git checkout stage
+            git merge latest
+            cp -r ../environments config/
+            export NODE_STAGE_ENV=stage
+            echo "NODE_STAGE_ENV is set to $NODE_STAGE_ENV"
+            npm run db:migrate
+            pm2 restart stage
+
+      - name: Notify Slack on Success
+        if: success()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": ":white_check_mark: NOCA Backend Deployment to Dev Branch succeeded!",
+              "channel": "#github-actions-status",
+              "username": "github-actions",
+              "icon_emoji": ":rocket:"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": ":x: NOCA Backend Deployment to Dev Branch failed! :warning:",
+              "channel": "#github-actions-status",
+              "username": "github-actions",
+              "icon_emoji": ":octocat:"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
