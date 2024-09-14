@@ -1,0 +1,58 @@
+name: Deploy to Stage Environment
+
+on:
+  push:
+    branches: [ "stage" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Deploy to Stage environment
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          username: ${{ secrets.STAGE_SSH_USERNAME }}
+          host: ${{ secrets.STAGE_SSH_HOST }}
+          key: ${{ secrets.STAGE_SSH_KEY }}
+          script: |
+            set -e
+            cd /var/www/stage_hmc_dispatch
+            eval $(ssh-agent -s)
+            ssh-add ~/.ssh/dispatch-github-v3
+            git pull origin stage
+            composer install --no-interaction --optimize-autoloader
+            php artisan migrate 
+            php artisan optimize:clear
+            eval $(ssh-agent -k)  # Clean up SSH agent
+
+      - name: Notify Slack on Success
+        if: success()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": ":white_check_mark: HMC Dispatch Deployment to Staging Environment succeeded!",
+              "channel": "#github-actions-status",
+              "username": "github-actions",
+              "icon_emoji": ":rocket:"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": ":x: HMC Dispatch Deployment to Staging Environment failed! :warning:",
+              "channel": "#github-actions-status",
+              "username": "github-actions",
+              "icon_emoji": ":octocat:"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
