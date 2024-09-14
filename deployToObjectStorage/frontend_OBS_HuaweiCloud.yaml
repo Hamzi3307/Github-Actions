@@ -1,0 +1,85 @@
+name: Build and Deploy to OBS
+
+on:
+  push:
+    branches:
+      - dev # Change this to your project's main branch
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      VITE_GOOGLE_MAP_KEY: ${{ secrets.PROD_GOOGLE_MAP_KEY }}
+      VITE_GOOGLE_API_KEY: ${{ secrets.PROD_GOOGLE_API_KEY }}
+      VITE_URL: ${{ secrets.VITE_PROD_URL }}
+      VITE_BASE_URL: ${{ secrets.VITE_BASE_URL }}
+      VITE_DEFAULT_LOCALE: ${{ secrets.VITE_DEFAULT_LOCALE }}
+      VITE_FALLBACK_LOCALE: ${{ secrets.VITE_FALLBACK_LOCALE }}
+      VITE_SUPPORTED_LOCALES: ${{ secrets.VITE_SUPPORTED_LOCALES }}
+      VITE_NAFADH_URL: ${{ secrets.PROD_NAFADH_URL }}
+      VITE_NAFADH_APP_ID: ${{ secrets.PROD_NAFADH_APP_ID }}
+      VITE_NAFADH_APP_KEY: ${{ secrets.PROD_NAFADH_APP_KEY }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: 18
+
+      - name: Cache Node Modules
+        uses: actions/cache@v2
+        with:
+          path: node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Vue Project
+        run: npm run build
+
+      - name: Deploy to OBS
+        run: |
+          set -e
+          npm install huaweicloud-obs-sync
+          node -e "require('huaweicloud-obs-sync').syncFolderToOBS({
+            server: '${{ secrets.OBS_ENDPOINT }}',
+            bucket: '${{ secrets.OBS_BUCKET }}',
+            accessKeyId: '${{ secrets.OBS_ACCESS_KEY }}',
+            secretAccessKey: '${{ secrets.OBS_SECRET_KEY }}',
+            localDir: 'dist'
+          })"
+
+      - name: Notify Slack on Success
+        if: success()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": ":white_check_mark: Ewanc Frontend Deployment to Production Environment succeeded!",
+              "channel": "#github-actions-status",
+              "username": "github-actions",
+              "icon_emoji": ":rocket:"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": ":x: Ewanc Frontend Deployment to Production Environment failed! :warning:",
+              "channel": "#github-actions-status",
+              "username": "github-actions",
+              "icon_emoji": ":octocat:"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
