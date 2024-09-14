@@ -1,0 +1,91 @@
+name: DEPLOY to S3 ACTIONS
+
+on:
+  push:
+    branches: [ "dev" ]
+
+jobs:
+  Build_and_Deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      VITE_BASE_URL_BACKEND: ${{ secrets.STAGE_BASE_URL_BACKEND }}
+      VITE_BASE_URL_FRONTEND: ${{ secrets.STAGE_BASE_URL_FRONTEND }}
+      VITE_GOOGLE_API_KEY: ${{ secrets.STAGE_GOOGLE_API_KEY }}
+      VITE_GOOGLE_CLIENT_ID: ${{ secrets.STAGE_GOOGLE_CLIENT_ID }}
+      VITE_FACEBOOK_CLIENT_ID: ${{ secrets.STAGE_FACEBOOK_CLIENT_ID }}
+      VITE_STRIPE_KEY: ${{ secrets.STAGE_STRIPE_KEY }}
+      VITE_VAPID_KEY: ${{ secrets.STAGE_VAPID_KEY }}
+      VITE_FIREBASE_KEY: ${{ secrets.STAGE_FIREBASE_KEY }}
+      
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: 18
+
+      - name: Cache Node Modules
+        uses: actions/cache@v2
+        with:
+          path: node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Vue.js Project
+        run: npm run build
+
+      - name: Upload to S3
+        uses: jakejarvis/s3-sync-action@v0.5.1
+        with:
+          args: --follow-symlinks --delete
+        env:
+          AWS_S3_BUCKET: ${{ secrets.S3_STAGE_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          SOURCE_DIR: ${{ vars.BUILD_DIR }}
+
+      - name: Invalidate CloudFront Cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id E1816725W6NUTR \
+            --paths "/*"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: 'ap-south-1'
+
+      - name: Notify Slack on Success
+        if: success()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": ":white_check_mark: HMC Customer Web App Deployment to STAGING Environment succeeded!",
+              "channel": "#github-actions-status",
+              "username": "github-actions",
+              "icon_emoji": ":rocket:"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": ":x: HMC Customer Web App Deployment to STAGING Environment failed! :warning:",
+              "channel": "#github-actions-status",
+              "username": "github-actions",
+              "icon_emoji": ":octocat:"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
