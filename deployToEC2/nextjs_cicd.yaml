@@ -1,0 +1,64 @@
+name: NEXT APP
+on:
+  push:
+    branches:
+      - 'main'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Deploy Code
+      uses: appleboy/ssh-action@v0.1.10
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USER }}
+        key: ${{ secrets.SSH_KEY }}
+        script: |
+          set -e
+          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.38.0/install.sh | bash
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          nvm use 18.18.0 || nvm install 18.18.0
+          cd /var/www/hmc-restaurants-web-frontend
+          eval "$(ssh-agent -s)";
+          ssh-add ~/.ssh/web-restaurent;
+          git stash;
+          git pull origin main
+          npm i; 
+          npm run build;
+          npm i pm2;
+          pm2 restart customer_page
+          pm2 save
+          eval "$(ssh-agent -k)"
+      
+    - name: Notify Slack on Success
+      if: success()
+      uses: slackapi/slack-github-action@v1.23.0
+      with:
+        payload: |
+          {
+            "text": ":white_check_mark: HMC Orders Deployment to Staging Environment succeeded!",
+            "channel": "#github-actions-status",
+            "username": "github-actions",
+            "icon_emoji": ":rocket:"
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Notify Slack on Failure
+      if: failure()
+      uses: slackapi/slack-github-action@v1.23.0
+      with:
+        payload: |
+          {
+            "text": ":x: HMC Orders Deployment to Staging Environment failed! :warning:",
+            "channel": "#github-actions-status",
+            "username": "github-actions",
+            "icon_emoji": ":octocat:"
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
